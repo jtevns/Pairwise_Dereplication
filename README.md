@@ -8,7 +8,7 @@ A set of tools for dereplication of MAGs via pairwise comparisons
          ```pip install networkx --user```
 
 # Running the script 
-To dereplicate use selectUniqueGenomes.py
+To dereplicate use Select_Unique_Genomes.py
 
 This script is responsible for the actual dereplication
 
@@ -24,6 +24,9 @@ Input:
 Output:
 * unique_genomes.txt
   * A list of genomes determined to be unique within the set of comparisons provided
+  
+Command:
+```python Select_Unique_Genomes.py pairwise_long.txt binstats.txt ANI_thresh COV_thresh
  
  # How it Works
  1. The input table is parsed and all comparisons stored.
