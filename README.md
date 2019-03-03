@@ -26,7 +26,7 @@ Output:
   * A list of genomes determined to be unique within the set of comparisons provided
   
 Command:
-```python Select_Unique_Genomes.py pairwise_long.txt binstats.txt ANI_thresh COV_thresh
+```python Select_Unique_Genomes.py pairwise_long.txt binstats.txt ANI_thresh COV_thresh```
  
  # How it Works
  1. The input table is parsed and all comparisons stored.
