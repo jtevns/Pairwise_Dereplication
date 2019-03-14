@@ -49,9 +49,9 @@ def readData(inFile):
         for line in pairTable:
             if "bin1" not in line:
                 splitLine = line.split("\t")
-                genomeSet.add(splitLine[1])
-                genomeSet.add(splitLine[2])
-                compDict[';'.join([splitLine[1],splitLine[2]])] = [splitLine[3],splitLine[4]]
+                genomeSet.add(splitLine[1].replace('.fa', ''))
+                genomeSet.add(splitLine[2].replace('.fa', ''))
+                compDict[';'.join([splitLine[1].replace('.fa', ''),splitLine[2].replace('.fa', '')])] = [splitLine[3],splitLine[4]]
     genomeSet = list(genomeSet)
     return genomeSet,compDict
 
@@ -63,7 +63,8 @@ def readBinStats(binStatsFile):
                 splitStat = stat.split("\t")
                 #compute bin score completeness - 5*contamination
                 score = float(splitStat[11]) - (float(splitStat[12]) * 5)
-                binStats[splitStat[0]]= score
+                fixedBinName = splitStat[0].replace('.fa','')
+                binStats[fixedBinName] = score
     return binStats
 
 def makeRedundantGroups(genomeList,comparisonList):
