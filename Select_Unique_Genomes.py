@@ -1,156 +1,126 @@
-# A script for selecting unique genomes from a set of redundant genomes 
-# based on pairwise comparisons and contamination and competion estimates
-# to pick the best representatives
-##########################################################################
-#Usage:
-# requires python3, networkx, operator 
-#
-# python selectUniqueGenomes.py pariWiseTable binstats.txt ANI COV
-#
-##########################################################################
-import sys
+import pandas as pds
 import networkx as nx
-from networkx.algorithms.components.connected import connected_components
-import matplotlib.pyplot as plt; plt.ion()
-import operator
+import operator 
+import click
 
-class Comparison:
-    def __init__(self,a,b):
-        self.comp_forward = str(a + ";" + b)
-        self.comp_reverse = str(b + ";" + a)
-        self.bin_a = a
-        self.bin_b = b
-        self.cov_forward = -1
-        self.cov_reverse = -1
-        self.sim_forward = -1
-        self.sim_reverse = -1
-
+class Genome:
+    def __init__(self,name):
+        self.name = name
+        self.qual_score = -1
+        self.comparison_info = dict()
+    
     def __str__(self):
-        return (self.comp_forward+" "+ str(self.sim_forward) +" "+ str(self.cov_forward) +
-               "\n"+self.comp_reverse +" "+ str(self.sim_reverse) +" "+ str(self.cov_reverse))
+        return ("name: " + self.name + "\n" +
+                "qual_score: " + str(self.qual_score) + "\n" +
+                "comparison Count: " + str(len(self.comparison_info)) + "\n")
 
-    def fillData(self,pairwiseDataDict):
-        found_forward = pairwiseDataDict[self.comp_forward]
-        self.cov_forward = float(found_forward[1])
-        self.sim_forward = float(found_forward[0])
+def trim_ext(bin_name):
+    if ".fa" in bin_name:
+        return bin_name.replace(".fa","")
+    if ".fasta" in bin_name:
+        return bin_name.replace(".fasta","")
+    if ".fna" in bin_name:
+        bin_name.replace(".fna","")
+    else:
+        return bin_name
+    
+def create_genome_list(pairwise_tsv,checkm_tsv):
+    genome_list = list()
+    with open(pairwise_tsv) as comparisons:
+        for comparison in comparisons:
+            if "bin1" not in comparison:
+                row_num,bin1,bin2,ani,cov = comparison.strip().split("\t")
+                bin1 = trim_ext(bin1)
+                bin2 = trim_ext(bin2)
+                if len([x for x in genome_list if x.name == bin1]) == 0:
+                    new_genome = Genome(bin1)
+                    new_genome.comparison_info[bin2] = [float(ani),float(cov)]
+                    genome_list.append(new_genome)
+                else:
+                    existing_genome = [x for x in genome_list if x.name == bin1][0]
+                    existing_genome.comparison_info[bin2] = [float(ani),float(cov)]
+    with open(checkm_tsv) as binstats:
+        for stat in binstats:
+            if "Completeness" not in stat:
+                split_stat = stat.strip().split("\t")
+                bin_name = trim_ext(split_stat[0])
+                bin_score = float(split_stat[11]) - (float(split_stat[12]) * 5)
 
-        found_reverse = pairwiseDataDict[self.comp_reverse]
-        self.cov_reverse = float(found_reverse[1])
-        self.sim_reverse = float(found_reverse[0])
+                genome_to_update = [x for x in genome_list if x.name == bin_name][0]
+                genome_to_update.qual_score = bin_score
+                
+    return(genome_list)
 
-class RedundantGroup(set):
-    def __init__(self,genome):
-        self.genome = genome
+def create_matrix(genome_list,value_type):
+    if value_type == "ani":
+        index = 0
+    if value_type == "cov":
+        index = 1
+        
+    matrix = dict()
+    for genome in genome_list:
+        value_dict = dict()
+        for key, value in genome.comparison_info.items():
+            value_dict[key] = value[index]
+        matrix[genome.name] = value_dict
+    return matrix
 
-def readData(inFile):
-    genomeSet = set()
-    compDict = dict()
-    with open(inFile) as pairTable:
-        for line in pairTable:
-            if "bin1" not in line:
-                splitLine = line.split("\t")
-                genomeSet.add(splitLine[1].replace('.fa', ''))
-                genomeSet.add(splitLine[2].replace('.fa', ''))
-                compDict[';'.join([splitLine[1].replace('.fa', ''),splitLine[2].replace('.fa', '')])] = [splitLine[3],splitLine[4]]
-    genomeSet = list(genomeSet)
-    return genomeSet,compDict
-
-def readBinStats(binStatsFile):
-    binStats = dict()
-    with open(binStatsFile) as stats:
-        for stat in stats:
-            if "Marker" not in stat:
-                splitStat = stat.split("\t")
-                #compute bin score completeness - 5*contamination
-                score = float(splitStat[11]) - (float(splitStat[12]) * 5)
-                fixedBinName = splitStat[0].replace('.fa','')
-                binStats[fixedBinName] = score
-    return binStats
-
-def makeRedundantGroups(genomeList,comparisonList):
-    redundantSetList = list()
-    for i in genomeList:
-        tempCompList = [x for x in comparisonList if i in x.comp_forward]
-        tempGroup = RedundantGroup(i)
-        for j in tempCompList: 
-            tempGroup.add(j.bin_a)
-            tempGroup.add(j.bin_b)
-        redundantSetList.append(tempGroup)
-    return(redundantSetList)
-
-def makeGraph(redundantSetList): 
-    G = nx.Graph()
-    for genomeSet in redundantSetList:
-        # each sublist is a bunch of nodes
-        G.add_nodes_from(genomeSet)
-        # it also imlies a number of edges:
-        G.add_edges_from(makeEdges(genomeSet))
-    return G
-
-def makeEdges(set):
-
-    it = iter(set)
-    last = next(it)
-
-    for current in it:
-        yield last, current
-        last = current
-
-def plotGraph():
-    pass
-
-def selectBest(uniqGroupsList,binStats):
+def selectBest(uniqGroupsList,genome_list):
     representatives = list()
     for group in uniqGroupsList:
-        subBinStats = dict((x, binStats[x]) for x in group if x in binStats)
-        groupRep = max(subBinStats.items(), key=operator.itemgetter(1))[0]
-        representatives.append(groupRep)
+        #get genomes in the group and compare score
+        genome_sub = [x for x in genome_list if x.name in group]
+        representatives.append(max(genome_sub, key=lambda genome: genome.qual_score).name)
     return representatives
 
-############################### MAIN #####################################################
-ANI=float(sys.argv[3])
-COV=float(sys.argv[4])
-genomeSetList,compDict = readData(sys.argv[1])
-#genome set is uniq list of bins in pairwise comparisons
-#compDict is data for each comparison in pairwise comparisons
+@click.command()
+@click.option('--ani',default=.99,help="An ani value between 0 and 1 to use as the threshold for creating clusters")
+@click.option('--cov',default=.75,help="An cov value between 0 and 1 to use as the threshold for creating clusters")
+@click.option('--genome_comparisons',help="A tab delimited file of genome comparisons with the columns: bin1,bin2,ANI,Cov")
+@click.option('--genome_stats',help="A tab delimited file of genome stats from checkM (can be produced by using checkms --tab_table option)")
+def dereplicate(ani,cov,genome_comparisons,genome_stats):
+    ANI = ani
+    COV = cov
+    PAIRWISE_TSV = genome_comparisons
+    CHECKM_TSV = genome_stats
 
-binStats = readBinStats(sys.argv[2])
+    genome_list = create_genome_list(PAIRWISE_TSV,CHECKM_TSV)
 
-#init comparisons
-comparisonsList = list()
-for i in range(0, len(genomeSetList), 1):
-    for j in range(0, len(genomeSetList), 1):
-        comparisonsList.append(Comparison(genomeSetList[i],genomeSetList[j]))
+    genome_graph = nx.MultiGraph()
+    genome_graph.add_nodes_from([x.name for x in genome_list])
 
-#fill comparison objects with data
-for i in comparisonsList:
-    i.fillData(compDict)
+    for genome in genome_list:
+        for comparison in genome.comparison_info:
+            temp = genome.comparison_info[comparison]
+            ani = temp[0]
+            cov = temp[1]
+            if ani >= ANI and cov >= COV and genome.name != comparison:
+                genome_graph.add_edge(comparison,genome.name,weight=ani)
+            
+    #trim edges from clusters that dont have pairwise comparison meeting threshhold
+    adj_iter = genome_graph.adjacency()
+    remove_list = list()
+    for node in adj_iter:
+        node_name = node[0]
+        neighbors = node[1]
+    
+        for key in neighbors:
+            if len(neighbors[key]) < 2:
+                remove_list.append((node_name,key))
 
-#subset to comparisons that have 99% ident for both forward and rev, cov of > 75% and not a comparison to itself
-redundantComparisons = [x for x in comparisonsList if x.sim_forward > ANI and x.sim_reverse > ANI
-                    and x.cov_forward > COV and x.cov_reverse > COV and x.comp_forward != x.comp_reverse]
+    genome_graph.remove_edges_from(remove_list)    
 
+    #get clusters and unique genomes
+    clusters = [x for x in nx.connected_components(genome_graph) if len(x) > 1]
+    unique_genomes = [list(x)[0] for x in nx.connected_components(genome_graph) if len(x) == 1]
 
-#make list of RedundantGroups
-redundantSetList = makeRedundantGroups(genomeSetList,redundantComparisons)
-#find any sets that share entries and merge them to create a
-#new set that is unique
-nonUniqGroups = [x for x in redundantSetList if len(x) >0]
-G = makeGraph(nonUniqGroups)
-uniqGroups = connected_components(G)
+    #select representative from each cluster
+    reps_from_clusters = selectBest(clusters,genome_list)
+    final_bins = unique_genomes + reps_from_clusters
 
+    outfileName = "unique_genomes_"+str(ANI)+"ani_"+str(COV)+"cov.txt"
+    with open(outfileName,"w") as outfile:
+        outfile.write("\n".join(final_bins))
 
-#select best representative from each uniq set with dparks metric
-#then add them to unique genomes
-groupRepresentatives = selectBest(list(uniqGroups),binStats)
-
-# make final list by adding originally uniq genomes and found representatives
-uniqueGenomes = ([x.genome for x in redundantSetList if len(x) == 0] +  
-                         groupRepresentatives)
-
-# write list to file
-outfileName = "unique_genomes_"+str(ANI)+"ani_"+str(COV)+"cov.txt"
-outfile = open(outfileName,'w+')
-for genome in uniqueGenomes:
-    outfile.write(genome + "\n")
-outfile.close()
+if __name__ == '__main__':
+    dereplicate()
