@@ -28,7 +28,7 @@ def create_genome_list(pairwise_tsv,checkm_tsv):
     genome_list = list()
     with open(pairwise_tsv) as comparisons:
         for comparison in comparisons:
-            if "bin1" not in comparison:
+            if "bin1\tbin2\tANI\tCov" not in comparison:
                 row_num,bin1,bin2,ani,cov = comparison.strip().split("\t")
                 bin1 = trim_ext(bin1)
                 bin2 = trim_ext(bin2)
